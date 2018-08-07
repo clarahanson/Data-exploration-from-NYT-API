@@ -1,0 +1,95 @@
+###########################################################################################################################################################
+####### This code is adapted from a tutorial published by Rochelle Terman on the D-Lab Berkeley's blog.                                             #######
+####### It is modified to iterate over month rather than year, to save the data in json format, and to use multiple API keys for collaborative work.#######
+####### See the original tutorial here: http://dlab.berkeley.edu/blog/scraping-new-york-times-articles-python-tutorial                              #######
+###########################################################################################################################################################
+
+def parse_articles(articles):
+    '''
+    This function takes in a response to the NYT api and parses
+    the articles into a list of dictionaries
+    '''
+    news = []
+    if 'response' in articles.keys():
+        for i in articles['response']['docs']:
+            dic = {}
+            dic['id'] = i['_id']
+            if 'abstract' in i.keys():
+                if i['abstract'] is not None:
+                    dic['abstract'] = i['abstract']
+            dic['headline'] = i['headline']['main']
+            if 'desk' in i.keys():
+                dic['desk'] = i['news_desk']
+            dic['date'] = i['pub_date'][0:10] # cutting time of day.
+            if 'section' in i.keys():
+                dic['section'] = i['section_name']
+            if i['snippet'] is not None:
+                dic['snippet'] = i['snippet']
+            if 'type' in i.keys():
+                dic['type'] = i['type_of_material']
+            if 'url' in i.keys():
+                dic['url'] = i['web_url']
+            # subject
+            subjects = []
+            for x in range(0,len(i['keywords'])):
+                if 'subject' in i['keywords'][x]['name']:
+                    subjects.append(i['keywords'][x]['value'])
+            dic['subjects'] = subjects   
+            news.append(dic)
+        return(news)
+    else:
+        print(articles)
+       
+def get_articles(query, output_directory, api_keys, start_year=1852, end_year=2018):
+
+    import time, os, json
+    from NYTimesArticleAPI import articleAPI
+    
+    for year in range(start_year, end_year+1):
+        all_articles = []
+        api = articleAPI(api_keys[0])
+        
+        for month in range(1,13):
+            if month in [1, 3, 5, 7, 8, 10, 12]:
+                last_day = 31
+            if month in [4, 6, 9, 11]:
+                last_day = 30
+            if month == 2:
+                last_day = 28
+            
+            for n in range(0,100):
+                articles = api.search(q = query,
+                        fq = {'source':['The New York Times']},
+                        begin_date = str(year) + str("%.2d" % month) + '01',
+                        end_date = str(year) + str("%.2d" % month) + str(last_day),
+                        sort='oldest',
+                        page = str(n))
+                                
+                if 'message' in articles.keys():
+                    print("NoneType object detected")
+                    del api_keys[0]
+                    api = articleAPI(api_keys[0])
+                    time.sleep(1)
+                    
+                    articles = api.search(q = query,
+                        fq = {'source':['The New York Times']},
+                        begin_date = str(year) + str("%.2d" % month) + '01',
+                        end_date = str(year) + str("%.2d" % month) + str(last_day),
+                        sort='oldest',
+                        page = str(n))
+                    
+                articles=parse_articles(articles)
+                if articles:
+                    all_articles.extend(articles)
+                time.sleep(1) #rate limit of 1 second
+                if len(articles)<10: # loop stops when a full page of results is not returned to prevent empty queries 
+                    break
+                    
+        y = output_directory+"NYT_data_"+str(year)+".json"
+        with open (y, 'w') as json_document:
+            json.dump(all_articles, json_document)
+        print("just finished collecting and saving "+ str(year))
+
+api_keys = []
+json_directory = " "
+get_articles("keyword", json_directory, api_keys, start_year=1852, end_year=2018)
