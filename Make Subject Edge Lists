@@ -1,7 +1,11 @@
 from __future__ import division
 
+### NOTE: The nx.read_edgelist() function struggles to read isolated nodes at the beinning of an edge list
+### code may be improved by shorting edge list and removing spacing irregularity 
+
 def make_subject_network(input_directory, output_directory, groupby='decade'):
 
+    global weighted_edgelist
     # this code creates a bipartite network using articles collected from the New York Time's API
     # as the top level nodes, and the subjects associated with those articles as the bottom level nodes.
     # the network is projected onto the subjects, and the final graph represents the relationship between subjects
@@ -9,7 +13,7 @@ def make_subject_network(input_directory, output_directory, groupby='decade'):
     #
     # graphs may be produced for all articles in a year or in a decade using the groupby input
     
-    import os, re, json, sys
+    import os, re, json, sys, community, operator, csv
     import pandas as pd
     import networkx as nx
     from networkx.algorithms import bipartite
@@ -29,6 +33,7 @@ def make_subject_network(input_directory, output_directory, groupby='decade'):
                 if groupby=='decade':
                     q = re.match('(\d\d\d)', each['date'])
                 year = q.group(1)
+                each['subjects']=(re.sub('\W', '_', i) for i in each['subjects'])
                 if year in network_data:
                     network_data[year].append([i.lower() for i in each['subjects']])
                 if year not in network_data:
@@ -36,26 +41,23 @@ def make_subject_network(input_directory, output_directory, groupby='decade'):
                     
     os.chdir(output_directory)
             
-    for key, value in network_data.items():
+    for key, _list_ in network_data.items():
         B = nx.Graph()
-        for counter, text in enumerate(value):
+        for counter, _sublist_ in enumerate(_list_):
             B.add_node(counter, bipartite=0)
-            for i in text:
-                if B.has_node(i):
-                    B.add_edge(counter, i)
+            for subject in _sublist_:
+                if B.has_node(subject):
+                    B.add_edge(counter, subject)
                 else:
-                    B.add_node(i, bipartite=1)
-                    B.add_edge(counter, i)
+                    B.add_node(subject, bipartite=1)
+                    B.add_edge(counter, subject)
         top_nodes = set(n for n,d in B.nodes(data=True) if d['bipartite']==0)
         bottom_nodes = set(B) - top_nodes
         # note: the edge weights are a count of the number of shared nodes. Using ratio=True
         #       returns a graph with edges weighted by a ratio of shared edges to possible shared edges
         #       see: https://networkx.github.io/documentation/stable/reference/algorithms/generated/networkx.algorithms.bipartite.projection.weighted_projected_graph.html#networkx.algorithms.bipartite.projection.weighted_projected_graph
         weighted_edgelist = bipartite.weighted_projected_graph(B, bottom_nodes, ratio=False)
-        if groupby=='year':
-            nx.write_edgelist(weighted_edgelist, key+"_bipartite.edges")
-        if groupby=='decade':
-            nx.write_edgelist(weighted_edgelist, key+str(0)+"s_bipartite.edges")
+        nx.write_edgelist(weighted_edgelist, key+str(0)+"s_bipartite.edges")
             
 input_directory = " "
 output_directory = " "
