@@ -3,7 +3,7 @@ from __future__ import division
 ### NOTE: The nx.read_edgelist() function struggles to read isolated nodes at the beinning of an edge list
 ### code may be improved by shorting edge list and removing spacing irregularity 
 
-def make_subject_network(input_directory, output_directory, groupby='decade'):
+def make_subject_network(input_directory, output_directory, groupby='decade', restrict_vocabulary=False):
 
     global weighted_edgelist
     # this code creates a bipartite network using articles collected from the New York Time's API
@@ -38,6 +38,22 @@ def make_subject_network(input_directory, output_directory, groupby='decade'):
                     network_data[year].append([i.lower() for i in each['subjects']])
                 if year not in network_data:
                     network_data[year]=[[i.lower() for i in each['subjects']]]
+    
+    # Option to restrict vocabulary of subjects - set here to include only subjects that occur >= 10 times across entire corpus
+    if restrict_vocabulary==True:
+        total_vocabulary = []
+        for value in network_data.values():
+            for _list_ in value:
+                total_vocabulary.extend(_list_)
+
+        included_words = set(key for (key, value) in Counter(total_vocabulary).items() if value>=10)
+        included_words.remove('no_index_terms')
+
+        for key, value in network_data.items():
+            completed_list = []
+            for each in value:
+                completed_list.append([i for i in each if i in included_words])
+            network_data[key]=completed_list
                     
     os.chdir(output_directory)
             
@@ -57,9 +73,9 @@ def make_subject_network(input_directory, output_directory, groupby='decade'):
         #       returns a graph with edges weighted by a ratio of shared edges to possible shared edges
         #       see: https://networkx.github.io/documentation/stable/reference/algorithms/generated/networkx.algorithms.bipartite.projection.weighted_projected_graph.html#networkx.algorithms.bipartite.projection.weighted_projected_graph
         weighted_edgelist = bipartite.weighted_projected_graph(B, bottom_nodes, ratio=False)
-        nx.write_edgelist(weighted_edgelist, key+str(0)+"s_bipartite.edges")
-            
+        nx.write_edgelist(weighted_edgelist, key+str(0)+"s_bipartite.txt")
+                        
 input_directory = " "
 output_directory = " "
 
-make_subject_network(input_directory, output_directory, groupby='decade')
+make_subject_network(input_directory, output_directory, groupby='decade', restrict_vocabulary=True)
