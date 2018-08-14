@@ -1,0 +1,156 @@
+# this code is based on a method developed in "Lexical shifts, substantive changes, and continuity in State of the Union discourse, 1790–2014," 
+#    available here: http://www.pnas.org/content/112/35/10837
+
+# input_location takes a filepath to edgelist files, named & separated by year
+# output_location takes a filepath to where a list of community nodes & community eigenvalues will be saved
+
+def create_river_data(input_location, output_location):
+
+    import operator, community, csv, os, glob, re, json
+    import networkx as nx
+    from collections import Counter
+
+    # defining directory and files to use, in this case, all files in edge list directory
+    edge_list_location = input_location
+    edge_list_directory = os.path.join(edge_list_location, '*')
+    file_list = glob.glob(edge_list_directory)
+    file_list.sort()
+
+    # looping over the files to create CSVs with network analysis measures
+
+    total_data = {}
+    node_index = {}
+    id_counter = 0
+
+    for file in file_list:
+
+        find_year = re.search('(\d\d\d\d)', file)
+        year = find_year.group(0)
+
+        g = nx.read_edgelist(file)
+        louvain_partition = community.best_partition(g, weight='weight')
+        eigen_centrality = nx.eigenvector_centrality_numpy(g, max_iter=100, weight='weight')
+
+        total_data[year]={}
+
+        for _community_ in set(louvain_partition.values()):# makes set of community indexes
+            temp_list = []# list to store node_id, eigenvalue tupples 
+            for _node_ in louvain_partition.keys():# iterates over all node names
+                if louvain_partition[_node_] == _community_:# checks if node is in a given community (from top line of loop)
+                    if _node_ in set(node_index.keys()):# if node has already been added to the index
+                        temp_list.append((node_index[_node_], eigen_centrality[_node_]))# calls node's existing id, appends node id & eigenvalue to index
+                    if _node_ not in set(node_index.keys()):# checks if node already has a node_id
+                        node_index[_node_]=id_counter# adds unindexed node to node_index, assigns id
+                        temp_list.append((id_counter, eigen_centrality[_node_]))# adds id, eigenvalue tupple to temp_list
+                        id_counter+=1#adds 1 to counter for next node to be indexed
+            total_data[year][_community_]=temp_list# appends community data from temp_list to the total data dictionary
+
+        os.chdir(output_location)
+
+        for com in set(louvain_partition.values()) :
+            list_nodes = [nodes for nodes in louvain_partition.keys()
+                                    if louvain_partition[nodes] == com]
+            list_length = len(list_nodes)
+            with open (year+'community members.csv', 'a', newline='') as file:
+                mod_writer = csv.writer(file, delimiter=' ', quoting=csv.QUOTE_MINIMAL)
+                mod_writer.writerow((com, list_length, list_nodes))
+                file.close()
+
+    with open ("river_data.json", 'w') as json_document:
+            json.dump(total_data, json_document)
+
+### implementing Bhattacharyya distance 
+### code adapted from: https://gist.github.com/jstadler/c47861f3d86c40b82d4c
+
+def bhatta(h1, h2):
+    import numpy as np
+    import math
+    def normalize(h):
+        return h/np.sum(h)
+    return np.sum(np.sqrt(np.multiply(normalize(h1), normalize(h2))))
+        
+# generate and output scores
+def score_aggregation(h, k, length):# where h is a list of all communities in one year, and k is a list of all communities in following year
+    global scores
+    scores = []
+    for i in range(len(h)):
+        score = []
+        for j in range(len(k)):
+            score.append( bhatta(h[i],k[j]) )
+        scores.append(score)
+        
+def create_river_network(input_file, output_location):
+    ### this function outputs CSVs comparing the Bhattacharyya distance between each community in two consecutive years
+    ### input file must be a json file containing a dictionary for each year, with a dictionary for each node, with a list of id, eigenvalue pairs
+    ### (produced in create_river_data function)
+    ### output_location is location where comparison CSVs will be saved
+    
+    import csv
+
+    with open(input_file, 'r') as f:
+        full_data = json.loads(f.read())
+        
+    year_index = 2010 #set to most recent decade in dataset
+    os.chdir(output_location)
+
+    # loops over each descending year until it reaches the earliest decade in dataset
+    while year_index>1860: #set to earliest decade in dataset
+
+        highest_id = 0
+
+        # finding the highest node ID in the list to set length and index of year and prior_year vectors
+        for _community_ in full_data[str(year_index)]:
+            for _list_ in full_data[str(year_index)][_community_]:
+                if _list_[0]>hightest_id:
+                    highest_id = _list_[0]
+
+        present_communities_index = []
+        prior_communities_index = []
+
+        # transforming each community in current year into a vector of eigenvalues, indexed by node ids            
+        for _community_ in sorted(full_data[str(year_index)], key=int):
+            temp_list = []
+            for each in range(0, highest_id+1):
+                changed_to_eigen=False
+                for _list_ in full_data[str(year_index)][_community_]:
+                    if _list_[0]==each:
+                        temp_list.append(_list_[1])
+                        changed_to_eigen=True
+                        break
+                if changed_to_eigen==False:
+                    temp_list.append(0)
+            present_communities_index.append(temp_list)
+
+        # as above, but for prior year
+        for _community_ in sorted(full_data[str(year_index-10)], key=int):
+            temp_list = []
+            for each in range(0, highest_id+1):
+                changed_to_eigen=False
+                for _list_ in full_data[str(year_index-10)][_community_]:
+                    if _list_[0]==each:
+                        temp_list.append(_list_[1])
+                        changed_to_eigen=True
+                        break
+                if changed_to_eigen==False:
+                    temp_list.append(0)
+            prior_communities_index.append(temp_list)
+
+        #setting dist to 1 becasue abs(i) of each eigenvalue falls between 0 and 1
+        score_aggregation(present_communities_index, prior_communities_index, highest_id)
+
+        with open(str(year_index)+"_links_to_"+str(year_index-10)+".csv", 'w') as output:
+            writer = csv.writer(output)
+            writer.writerows(scores)
+            output.close()
+
+        year_index-=10
+        
+input_location= " "
+output_location=" "
+
+create_river_data(input_location, output_location)
+
+input_file = " "
+output_location = " "
+
+create_river_network(input_file, output_location)
