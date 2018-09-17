@@ -1,0 +1,158 @@
+from __future__ import division
+
+def create_clean_snippets(input_directory, output_directory, file_name_len):
+
+    # input directory is a folder of json files collected from the New York Times API and processed using NYT API script
+    # output directory is folder for clearn json to be stored in
+    # this script cleans only the snippet text using subjects and snippet text, it does not clean headline text
+    # parameters for cleaning identified through my own review of patterns in the text and through irregularities seen when applying language models
+    # file_name_len is the character length of the input file name, used to grab and save the output file
+    
+    import operator, os, glob, re, json, nltk
+    from nltk.corpus import stopwords
+    from nltk.tokenize import RegexpTokenizer
+    from nltk.stem import WordNetLemmatizer
+    
+    # defining directory and files to use, in this case, all files in edge list directory
+
+    json_files_directory = os.path.join(input_directory, '*')
+    json_files_perm = glob.glob(json_files_directory)
+    json_files_perm.sort()
+
+    #################
+
+    for json_file in json_files_perm:
+        with open(json_file, 'r') as f:
+            r = json.loads(f.read())
+            f.close()
+        
+        # identifying & excluding company reports & obituaries 
+        new_r = []
+        for each in r:
+            for y in each['subjects']:
+                k=re.match('company reports', y.lower())
+                j = re.search('death', y.lower())
+                if not k:
+                    if not j:
+                        new_r.append(each)
+        
+        # removing either partial text or full article based on repetitive content or UTF8 incompatibility 
+        for each in new_r:
+            a=re.search('in this lesson, students', each['snippet'].lower())
+            b=re.search('new york times article', each['snippet'].lower())
+            c=re.search('new york times', each['snippet'].lower())
+            d=re.search('to the editor', each['snippet'].lower())
+            e=re.search('answer', each['snippet'].lower())
+            f=re.search('reader', each['snippet'].lower())
+            g=re.search('question', each['snippet'].lower())
+            h=re.search("re ''", each['snippet'].lower())
+            i=re.search("&#151;", each['snippet'].lower())
+            j=re.search("hot stories", each['snippet'].lower())
+            k=re.search("morning headlines", each['snippet'].lower())
+            l=re.search("quick bits", each['snippet'].lower())
+            m=re.search("in the news today", each['snippet'].lower())
+            n=re.search("with news on", each['snippet'].lower())
+            o=re.match("stock prices", each['snippet'].lower())
+            p=re.match('lead:', each['snippet'].lower())
+            q=re.search('&#8220;', each['snippet'].lower())
+            r=re.search('the technology reporters and editors of the new york times', each['snippet'].lower())
+            s=re.search('&#8217;', each['snippet'].lower())
+            t=re.search('scour the web', each['snippet'].lower())
+            w=re.search('http://www.nytimes.com', each['snippet'].lower())
+            x=re.search('\u2019', each['snippet'].lower())
+            y=re.search('www', each['snippet'].lower())
+            z=re.search('\.com', each['snippet'].lower())
+
+            if a:
+                pattern=re.compile('in this lesson, students')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if b:
+                pattern=re.compile('new york times article')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if c:
+                pattern=re.compile('new york times')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if d:
+                pattern=re.compile('to the editor')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if e:
+                if f:
+                    if g:
+                        each['snippet']=''
+            if h:
+                each['snippet']=''
+            if i:
+                pattern=re.compile('&#151;')
+                each['snippet']=pattern.sub(' -- ', each['snippet'].lower())
+            if j:
+                each['snippet']=''
+            if k:
+                each['snippet']=''
+            if l:
+                each['snippet']=''
+            if m:
+                each['snippet']=''
+            if n:
+                each['snippet']=''
+            if o:
+                each['snippet']=''
+            if p:
+                pattern = re.compile('lead:')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if q:
+                pattern=re.compile('&#8220;')
+                each['snippet']=pattern.sub('"', each['snippet'].lower())
+            if r:
+                each['snippet']=''
+            if s:
+                pattern=re.compile('&#8217;')
+                each['snippet']=pattern.sub("'", each['snippet'].lower())
+            if t:
+                each['snippet']=''
+            if w:
+                pattern=re.compile('http://www.nytimes.com')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if x:
+                pattern=re.compile('\u2019')
+                each['snippet']=pattern.sub("'", each['snippet'].lower())
+            if y:
+                pattern=re.compile('www')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+            if z:
+                pattern=re.compile('.com')
+                each['snippet']=pattern.sub('', each['snippet'].lower())
+
+        # there are repeat articles in some years and not others - this removes most duplicates
+        # some duplicates with UTF8 errors remain (but there are very few), as well as duplicates printed in different years
+        seen=set()
+        deduped_r = []
+        for d in new_r:
+            t=d['snippet'][:120]
+            if t not in seen:
+                seen.add(t)
+                deduped_r.append(d)
+
+        # this loop removes place & date text from beginning of text - the double dash (--) is used regularly in place and date text, and occasionally in news text
+        # this loop splits on the double dash, but only when the double dash appears within the first 51 characters, to prevent incorrect splits
+        for each in deduped_r:
+            each['has_split']=False
+            m = re.search('--', each['snippet'].lower()[:50])
+            if m:
+                each['snippet'] = each['snippet'].lower().split('--', 1)[1]
+                each['has_split']=True
+            if each['has_split'] == False:
+                q = re.search('\(ap\)', each['snippet'].lower())
+                if q:
+                    each['snippet'] = each['snippet'].lower().split('(ap)', 1)[1]
+                    each['has_split']=True
+                    
+        with open (output_directory+json_file[-file_name_len:], 'w') as json_document:
+            json.dump(deduped_r, json_document)
+            json_document.close()
+
+###############################################################################################################################
+
+input_directory = '/'
+output_directory = '/'
+
+create_clean_snippets(input_directory, output_directory, 18)
